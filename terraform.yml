@@ -1,0 +1,54 @@
+name: Terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: apply or destroy
+        type: choice
+        options: [apply, destroy]
+        default: apply
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VAR_key_name: ${{ secrets.KEY_NAME }}
+  TF_VAR_my_ip: ${{ secrets.MY_IP }}
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+
+      - name: Init
+        run: terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.action == 'apply' }}
+        run: terraform plan -out=tfplan
+
+      - name: Apply
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.action == 'apply')
+        run: terraform apply -auto-approve tfplan
+
+      - name: Destroy
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
+        run: terraform destroy -auto-approve
